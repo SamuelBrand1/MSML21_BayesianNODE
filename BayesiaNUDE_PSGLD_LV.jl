@@ -1,10 +1,10 @@
-cd("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural ODE")
-Pkg.activate(".")
+# cd("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural ODE")
+# Pkg.activate(".")
 
 using DiffEqFlux, DifferentialEquations, Flux, Optim, Plots, AdvancedHMC, Serialization
 using JLD, StatsPlots
 using Random
-
+##
 function lotka_volterra!(du, u, p, t)
   x, y = u
   α, β, δ, γ = p
@@ -12,7 +12,9 @@ function lotka_volterra!(du, u, p, t)
   du[2] = dy = -δ*y + γ*x*y
 end
 
-# Initial condition
+f_lv = ODEFunction(lotka_volterra!,syms = [:prey,:predator])
+
+## Initial condition
 u0 = [1.0, 1.0]
 
 # Simulation interval and intermediary points
@@ -23,11 +25,21 @@ tsteps = 0.0:0.1:2.0
 p = [1.5, 1.0, 3.0, 1.0]
 
 # Setup the ODE problem, then solve
-prob_ode = ODEProblem(lotka_volterra!, u0, tspan, p)
+prob_ode = ODEProblem(f_lv, u0, tspan, p)
 
-sol_ode = solve(prob_ode, Tsit5(), saveat = tsteps)
+sol_ode = solve(prob_ode, Tsit5(), saveat = tsteps,tspan = (0,20))
 
+# using BenchmarkTools
+# function do_remake(p,prob)
+# 	_prob = remake(prob,p=p)
+# 	solve(_prob, Tsit5(), saveat = 0.1,tspan = (0,20))
+# end
+# @btime do_remake(p,prob_ode)
+# @btime solve(prob_ode, Tsit5(), saveat = 0.1,tspan = (0,20),p=p)
+
+# plot(sol_ode,lw = 2, legend = :topleft)
 ode_data = hcat([sol_ode[:,i] for i in 1:size(sol_ode,2)]...)
+# ode_data
 
 global α, β, δ, γ = [1.5, 1.0, 3.0, 1.0]
 
@@ -114,21 +126,29 @@ trainlosses, parameters = results;
 
 println(trainlosses[end])
 p = plot(trainlosses, scale =:log10)
-savefig(p, "lossesSGLD_LV_UDE") #loss is around ~7, no visible sampling phase, more iters needed
+# savefig(p, "lossesSGLD_LV_UDE") #loss is around ~7, no visible sampling phase, more iters needed
 
 ################################PLOT RETRODICTED DATA ##########################
 function predict_neuralode(p)
     Array(concrete_solve(prob_ude,Tsit5(),u0,p,saveat = tsteps))
 end
 
-pl = Plots.scatter(tsteps, ode_data[1,:], color = :red, label = "Data: Var1", xlabel = "t", title = "Spiral Neural ODE")
-Plots.scatter!(tsteps, ode_data[2,:], color = :blue, label = "Data: Var2")
+pl = Plots.scatter(tsteps, ode_data[1,:],
+					color = :red,
+					label = "Data: Var1",
+					xlabel = "t",
+					title = "Spiral Neural ODE",
+					legend = :topleft)
+Plots.scatter!(tsteps, ode_data[2,:],
+				color = :blue,
+				label = "Data: Var2")
 
 for k in 1:500
     resol = predict_neuralode(parameters[end-rand(1:600), :])
     plot!(tsteps,resol[1,:], alpha=0.04, color = :red, label = "")
     plot!(tsteps,resol[2,:], alpha=0.04, color = :blue, label = "")
 end
+display(pl)
 
 idx = findmin(trainlosses[end-400:end])[2]
 prediction = predict_neuralode(parameters[end- 400 + idx, :])
@@ -136,7 +156,7 @@ prediction = predict_neuralode(parameters[end- 400 + idx, :])
 plot!(tsteps,prediction[1,:], color = :black, w = 2, label = "")
 plot!(tsteps,prediction[2,:], color = :black, w = 2, label = "Best fit prediction", ylims = (0, 9))
 
-Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots1.pdf")
+# Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots1.pdf")
 
 ################################CONTOUR PLOTS##########################
 pl = Plots.scatter(ode_data[1,:], ode_data[2,:], color = :red, label = "Data",  xlabel = "Var1", ylabel = "Var2", title = "Spiral Neural ODE")
@@ -148,7 +168,7 @@ end
 
 plot!(prediction[1,:], prediction[2,:], color = :black, w = 2, label = "Best fit prediction", ylims = (0, 2.5) )
 
-Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots2.pdf")
+# Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots2.pdf")
 
 
 ########################PLOTS OF THE RECOVERED TERM: A#####################
@@ -184,7 +204,7 @@ end
 
 plot!(tsteps,UDE_SGLD[1:end], color = :black, w = 2, label = "Best fit prediction")
 
-Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots3.pdf")
+# Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots3.pdf")
 
 ########################PLOTS OF THE RECOVERED TERM: B#####################
 #=
@@ -213,13 +233,13 @@ end
 
 plot!(x_sol, y_sol, UDE_SGLD[1:end], color = :black, w =2,   label = "Best fit prediction", ylims = (0, 15))
 
-Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots4.pdf")
+# Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots4.pdf")
 
-save("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_NeuralUDE.jld", "parameters",parameters, "trainlosses", trainlosses, "ode_data", ode_data)
+# save("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_NeuralUDE.jld", "parameters",parameters, "trainlosses", trainlosses, "ode_data", ode_data)
 
-D = load("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_NeuralUDE.jld")
-parameters = D["parameters"]
-trainlosses = D["trainlosses"]
+# D = load("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_NeuralUDE.jld")
+# parameters = D["parameters"]
+# trainlosses = D["trainlosses"]
 
 ### Universal ODE Part 2: SInDy to Equations
 using DataDrivenDiffEq
@@ -284,7 +304,7 @@ y=[9; 9; 5; 2; 1; 1]
 
  scatter(x,y,marker_z=z,  label = "", xlabel = L"\lambda", xscale = :log, ylabel  = "Number of Active terms",framestyle = :box, color = :algae, ylims = (0, 10), markersize = 8, colorbar_title = "100* Error")
 
- Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots5_SINDY.pdf")
+#  Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots5_SINDY.pdf")
 
 
 
