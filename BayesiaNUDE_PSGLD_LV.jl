@@ -37,8 +37,10 @@ sol_ode = solve(prob_ode, Tsit5(), saveat = tsteps,tspan = (0,20))
 # @btime do_remake(p,prob_ode)
 # @btime solve(prob_ode, Tsit5(), saveat = 0.1,tspan = (0,20),p=p)
 
-# plot(sol_ode,lw = 2, legend = :topleft)
+plot(sol_ode,lw = 2, legend = :topleft)
 ode_data = hcat([sol_ode[:,i] for i in 1:size(sol_ode,2)]...)
+ode_data .+= 0.1.*randn(size(ode_data))
+scatter(ode_data')
 # ode_data
 
 global α, β, δ, γ = [1.5, 1.0, 3.0, 1.0]
@@ -67,51 +69,53 @@ prob_ude = ODEProblem(lotka_volterra_ude!, u0, tspan, p1)
 
 
 
-function train_neuralsir(steps, a, b, γ)
-    θ = p1
+function train_neuralsir(steps, a, b, γ,precision)
+    θ = p1 #Parameters being fitted
 
     predict(p) = Array(concrete_solve(prob_ude,Tsit5(),u0,p,saveat = tsteps))
-
-	loss(p) = sum(abs2, ode_data .- predict(p))
+	regularisation(p) = 0.5*precision*sum(abs2,p)
+	loss(p) = 50*sum(abs2, ode_data .- predict(p)) + regularisation(p) ## added a prior/regularisation for the parameters
 
 	trainlosses = [loss(p1); zeros(steps)]
 
 	weights = [p1'; zeros(steps, length(p1))]
 
-    for t in 1:steps
 	##########DEFINE########################
-	beta = 0.9;
-	λ =1e-8;
+	beta = 0.99;
+	λ =1e-5;
 	precond = zeros(length(θ))
+	G_diag = zeros(length(θ))
 
+    for t in 1:steps
 	################GRADIENT CALCULATIONS
 	x,lambda = Flux.Zygote.pullback(loss,θ)
-	 ∇L  = first(lambda(1))
-	 #ϵ = 0.0001
-	 ϵ = a*(b + t)^-γ
+	∇L  = first(lambda(1))
+	#  ϵ = 0.001
+	ϵ = a*(b + t)^-γ
 
 	###############PRECONDITIONING#####################
-	 if t == 1
-	   precond[:] = ∇L.*∇L
-     else
-	   precond *= beta
-	   precond += (1-beta)*(∇L .*∇L)
-     end
+	precond *= beta
+	precond += (1-beta)*(∇L .*∇L)
+    
 	 #m = λ .+ sqrt.(precond/((1-(beta)^t)))
-	 m = λ .+ sqrt.(precond)
+	 G_diag .= 1.0./(λ .+ sqrt.(precond))
 
 	 ###############DESCENT###############################
-	 for i in 1:length(∇L)
-		 noise = ϵ*randn()
-		 θ[i] = θ[i] - (0.5*ϵ*∇L[i]/m[i] +  noise)
-	 end
+	 θ .-= 0.5.*ϵ.*G_diag.*∇L  .+ sqrt.(ϵ.*G_diag).*randn(length(∇L))
+	#  for i in 1:length(∇L)
+	# 	 noise = ϵ*randn()
+	# 	 θ[i] = θ[i] - (0.5*ϵ*∇L[i]/m[i] +  noise)
+	#  end
 
 	#################BOOKKEEPING############################
-	weights[t+1, :] = p1
-	trainlosses[t+1] = loss(p1)
-	println(loss(p1))
+	neglogL = loss(θ) - regularisation(θ)
+	weights[t+1, :] = θ
+	trainlosses[t+1] = neglogL
+	if t % 100 == 0
+		println("On step $(t) fit error is $(neglogL). Step size is $(ϵ*10e4)e-4. Max component of G is $(maximum(G_diag)).")
 	end
-    print("Final loss is $(trainlosses[end])")
+	end
+    print("Final loss is $(trainlosses[end]). Step size is $(ϵ*10e4)e-4. Max component of G is $(maximum(G_diag)).")
 
     trainlosses, weights
 end
@@ -120,12 +124,13 @@ end
 
 #results =  train_neuralsir(6000, 0.0000006, 10, 1e-6, 0.9)
 
-results =  train_neuralsir(20000, 0.0001, 0.085, 0.001)
+results =  train_neuralsir(40000, 0.0025, 0.05, 0.75,0.01)
 
+plot([0.0025*(0.05 + t)^(-0.95) for t = 1:20000],scale = :log10)
 trainlosses, parameters = results;
 
 println(trainlosses[end])
-p = plot(trainlosses, scale =:log10)
+p = plot(trainlosses[(end-5000):end])
 # savefig(p, "lossesSGLD_LV_UDE") #loss is around ~7, no visible sampling phase, more iters needed
 
 ################################PLOT RETRODICTED DATA ##########################
@@ -137,16 +142,17 @@ pl = Plots.scatter(tsteps, ode_data[1,:],
 					color = :red,
 					label = "Data: Var1",
 					xlabel = "t",
-					title = "Spiral Neural ODE",
+					title = "LV ODE",
 					legend = :topleft)
 Plots.scatter!(tsteps, ode_data[2,:],
 				color = :blue,
 				label = "Data: Var2")
 
 for k in 1:500
-    resol = predict_neuralode(parameters[end-rand(1:600), :])
-    plot!(tsteps,resol[1,:], alpha=0.04, color = :red, label = "")
-    plot!(tsteps,resol[2,:], alpha=0.04, color = :blue, label = "")
+    resol = predict_neuralode(parameters[end-rand(1:1000), :]) 
+	resol .+= 0.1.*randn(size(resol))
+    plot!(tsteps,resol[1,:], alpha=0.01, color = :red, label = "")
+    plot!(tsteps,resol[2,:], alpha=0.01, color = :blue, label = "")
 end
 display(pl)
 
