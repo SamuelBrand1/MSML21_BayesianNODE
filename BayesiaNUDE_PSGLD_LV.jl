@@ -71,7 +71,7 @@ prob_ude = ODEProblem(lotka_volterra_ude!, u0, tspan, p1)
 
 function train_neuralsir(steps, a, b, γ,precision)
     θ = p1 #Parameters being fitted
-
+	
     predict(p) = Array(concrete_solve(prob_ude,Tsit5(),u0,p,saveat = tsteps))
 	regularisation(p) = 0.5*precision*sum(abs2,p)
 	loss(p) = 50*sum(abs2, ode_data .- predict(p)) + regularisation(p) ## added a prior/regularisation for the parameters
@@ -98,10 +98,10 @@ function train_neuralsir(steps, a, b, γ,precision)
 	precond += (1-beta)*(∇L .*∇L)
     
 	 #m = λ .+ sqrt.(precond/((1-(beta)^t)))
-	 G_diag .= 1.0./(λ .+ sqrt.(precond))
+	G_diag .= 1.0./(λ .+ sqrt.(precond))
 
 	 ###############DESCENT###############################
-	 θ .-= 0.5.*ϵ.*G_diag.*∇L  .+ sqrt.(ϵ.*G_diag).*randn(length(∇L))
+	θ .-= 0.5.*ϵ.*G_diag.*∇L  .+ sqrt.(ϵ.*G_diag).*randn(length(∇L))
 	#  for i in 1:length(∇L)
 	# 	 noise = ϵ*randn()
 	# 	 θ[i] = θ[i] - (0.5*ϵ*∇L[i]/m[i] +  noise)
@@ -112,10 +112,11 @@ function train_neuralsir(steps, a, b, γ,precision)
 	weights[t+1, :] = θ
 	trainlosses[t+1] = neglogL
 	if t % 100 == 0
-		println("On step $(t) fit error is $(neglogL). Step size is $(ϵ*10e4)e-4. Max component of G is $(maximum(G_diag)).")
+		println("On step $(t) fit error is $(neglogL). Step size is $(ϵ*1e4)e-4. Max component of G is $(maximum(G_diag)).")
 	end
+
 	end
-    print("Final loss is $(trainlosses[end]). Step size is $(ϵ*10e4)e-4. Max component of G is $(maximum(G_diag)).")
+    print("Final loss is $(trainlosses[end])")
 
     trainlosses, weights
 end
@@ -130,7 +131,7 @@ plot([0.0025*(0.05 + t)^(-0.95) for t = 1:20000],scale = :log10)
 trainlosses, parameters = results;
 
 println(trainlosses[end])
-p = plot(trainlosses[(end-5000):end])
+p = plot(trainlosses[(end-30000):end])
 # savefig(p, "lossesSGLD_LV_UDE") #loss is around ~7, no visible sampling phase, more iters needed
 
 ################################PLOT RETRODICTED DATA ##########################
@@ -149,18 +150,18 @@ Plots.scatter!(tsteps, ode_data[2,:],
 				label = "Data: Var2")
 
 for k in 1:500
-    resol = predict_neuralode(parameters[end-rand(1:1000), :]) 
+    resol = predict_neuralode(parameters[end-rand(1:10000), :]) 
 	resol .+= 0.1.*randn(size(resol))
     plot!(tsteps,resol[1,:], alpha=0.01, color = :red, label = "")
     plot!(tsteps,resol[2,:], alpha=0.01, color = :blue, label = "")
 end
 display(pl)
 
-idx = findmin(trainlosses[end-400:end])[2]
-prediction = predict_neuralode(parameters[end- 400 + idx, :])
+idx = findmin(trainlosses[end-10000:end])[2]
+prediction = predict_neuralode(parameters[end- 10000 + idx, :])
 
-plot!(tsteps,prediction[1,:], color = :black, w = 2, label = "")
-plot!(tsteps,prediction[2,:], color = :black, w = 2, label = "Best fit prediction", ylims = (0, 9))
+plot!(tsteps,prediction[1,:], color = :black, lw = 3, label = "")
+plot!(tsteps,prediction[2,:], color = :black, lw = 3, label = "Best fit prediction", ylims = (0, 9))
 
 # Plots.savefig("C:/Users/16174/Desktop/Julia Lab/Bayesian Neural UDE/SGLD_ADAM_LV_Plots1.pdf")
 
